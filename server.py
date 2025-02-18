@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify
+from flasgger import Swagger
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa  
 from cryptography.hazmat.backends import default_backend
-#import binascii
 import time
 import jwt 
 app = Flask(__name__)
+swagger = Swagger(app)
 
 
 DEVICE_LIST = {}                # A list of devices by user_id / limits 1 device to 1 user 
@@ -18,6 +19,48 @@ SECRET_KEY = "temporary_key"    # Used to seed JWT token
 #  
 @app.route("/register", methods=["POST"])
 def register():
+    """
+    Registers a device on the device list.
+    ---
+    parameters:
+      - name: username
+        in: body
+        required: true
+        type: string
+      - name: password
+        in: body
+        required: true
+        type: string
+      - name: public_key
+        in: body
+        required: true
+        type: string
+      - name: device
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            type:
+              type: string
+              example: "mac_address"
+            value:
+              type: string        
+              example: "XX.XX.XX.XX.XX"
+    responses:
+      200:
+        description: Device registered successfully
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: string
+            challenge:
+              type: string         
+      400:
+        description: Bad request
+    """
+
     try:
         data = request.get_json()
         public_key_pem = data.get("public_key")
@@ -53,6 +96,38 @@ def register():
 #
 @app.route("/verify", methods=["POST"])
 def verify():
+    """
+   Verifies the signature of the device
+    ---
+    parameters:
+      - name: user_id
+        in: body
+        required: true
+        type: string
+      - name: challenge
+        in: body
+        required: true
+        type: string
+      - name: signature
+        in: body
+        required: true
+        type: string
+    responses:
+      200:
+        description: Device registered successfully
+        schema:
+          type: object
+          properties:
+            session_token:
+              type: string
+      400:
+        description: Bad request
+      401:
+        description: Unauthorised request
+      500:
+        description: Internal error
+    """
+
     global DEVICE_LIST
     try:
         data = request.get_json()
@@ -102,6 +177,30 @@ def verify():
 #
 @app.route("/interact", methods=["POST"])
 def interact():
+    """
+    Simulation of a client's interaction with the server.
+    ---
+    parameters:
+      - name: Authorization
+        in: header
+        type: string
+        required: true
+        description: Bearer token
+    responses:
+      200:
+        description: Interaction was successful
+        schema:
+          type: object
+          properties:
+            outcome:
+              type: string
+      400:
+        description: Bad request
+      401:
+        description: Unauthorized
+      419:
+        description: Token has expired
+    """
     global DEVICE_LIST
     try:
         auth_header = request.headers.get("Authorization")
@@ -128,6 +227,37 @@ def interact():
 #
 @app.route("/get_challenge", methods=["POST"])
 def get_challenge():
+    """
+    Generates a new challenge for a user with a registered device.
+    ---
+    parameters:
+      - name: user_id
+        in: body
+        required: true
+        type: string
+      - name: device
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            type:
+              type: string
+              example: "mac_address"
+            value:
+              type: string        
+              example: "XX.XX.XX.XX.XX"
+    responses:
+      200:
+        description: New challenge generatedsuccessfully
+        schema:
+          type: object
+          properties:
+            challenge:
+              type: string         
+      400:
+        description: Bad request
+    """
     global CHALLENGES
     try:
         data = request.get_json()
