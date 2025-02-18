@@ -13,10 +13,10 @@ PRIVATE_KEY = None
 PUBLIC_KEY = None
 
 def main():
-    print("handshake client: \nOptions: register, interact, help and quit \n")
+    print("handshake client: \nOptions: register, interact, help and quit \n\n")
 
     while True:
-        user_input = input("Enter a command (or type 'quit' to quit): \n").strip().lower()
+        user_input = input("Enter a command (or type 'quit' or 'help' ): \n").strip().lower()
 
         if user_input == 'quit':
             print("Exiting the program.")
@@ -75,7 +75,7 @@ def register_device():
     except json.JSONDecodeError as e:
         print(f"Error parsing registration response: {e}")
         exit()
-    print("Registration Success\n=====")
+    print("Registration Success\n")
 
 
     # 3. Generate the signature
@@ -87,15 +87,16 @@ def interact():
     global SESSION_TOKEN, USER_ID
     interact_url = "http://127.0.0.1:5000/interact"  
     data = {"session_token": SESSION_TOKEN, "user_id":USER_ID} 
-    print ("data to send")
-    print (data)
     try:
         interact_response = requests.post(interact_url, json=data)
         if (interact_response.status_code == 200):
             interact_response.raise_for_status()
             interact_result = interact_response.json()
             outcome = interact_result["outcome"]
-            print("Interact Success Outcome:", outcome, "\n=========")
+            print("Interact Success Outcome:", outcome, "\n")
+        elif (interact_response.status_code == 419):
+            print("Token expired call reconnect\n")
+            reconnect()
         else:
             print("Error Validating:", interact_response.json() )
     except requests.exceptions.RequestException as e:
@@ -108,6 +109,26 @@ def interact():
 def get_mac_address():
     mac = ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff) for elements in range(0, 2*6, 2)][::-1])
     return mac
+
+def reconnect():
+    global  USER_ID
+    print("====\nAttempt reconnect")
+    get_challenge_url = "http://127.0.0.1:5000/get_challenge"  
+    mac_address = get_mac_address()
+    data = {"device": {"mac_address": mac_address}, "user_id":USER_ID} 
+    try:
+        get_challenge_response = requests.post(get_challenge_url, json=data)
+        if (get_challenge_response.status_code == 200):
+            get_challenge_response.raise_for_status()
+            get_challenge_result = get_challenge_response.json()
+            challenge_hex = get_challenge_result["challenge"]
+            print("Challenge received\n")
+            verify(challenge_hex)
+        else:
+            print("get_challenge returned error")
+    except Exception as e:
+        print(f"Error generating signature: {e}")
+        exit()
 
 
 def verify(challenge_hex):
@@ -147,7 +168,7 @@ def verify(challenge_hex):
     except json.JSONDecodeError as e:
         print(f"Error parsing verification response: {e}")
         exit()
-    print("Verfication Completed\n=====")
+    print("Verfication Completed\n")
 
 
 # Start CLI
