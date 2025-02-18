@@ -3,81 +3,153 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa  # Or ec
 from cryptography.hazmat.backends import default_backend
 import json
 import requests
+import uuid
+
+
 
 SESSION_TOKEN = None
+USER_ID = None
+PRIVATE_KEY = None
+PUBLIC_KEY = None
 
-# 1. Generate the private key
-private_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,  # Adjust key size as needed
-    backend=default_backend()
-)
-public_key = private_key.public_key()
+def main():
+    print("handshake client: \nOptions: register, interact, help and quit \n")
 
-# Serialize the public key (for sending to the server during registration, if needed)
-public_pem = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo
-)
+    while True:
+        user_input = input("Enter a command (or type 'quit' to quit): \n").strip().lower()
 
-# 5. Register the public key with the server
-register_url = "http://127.0.0.1:5000/register"  # Replace with your server's registration endpoint
-register_data = {"public_key": public_pem.decode('utf-8')}  # Send public key as a string
-
-try:
-    register_response = requests.post(register_url, json=register_data)
-    register_response.raise_for_status()
-    register_result = register_response.json()
-    print(register_result)
-    challenge_hex = register_result.get("challenge")
-    challenge = bytes.fromhex(challenge_hex) # Decode from hex to bytes
-    user_id = register_result.get("user_id")
-    print("Registration result:", register_result)
-except requests.exceptions.RequestException as e:
-    print(f"Error sending registration request: {e}")
-    exit()
-except json.JSONDecodeError as e:
-    print(f"Error parsing registration response: {e}")
-    exit()
+        if user_input == 'quit':
+            print("Exiting the program.")
+            break
+        elif user_input == 'help':
+            show_help()
+        elif user_input == 'register':
+            register_device()
+        elif user_input == 'interact':
+            interact()
+        else:
+            print("Unknown command. Please enter 'help' for a list of commands.")
 
 
-# 3. Generate the signature
-print("\nVerify starts\n=====")
-try:
-    signature = private_key.sign(
-        challenge,
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        hashes.SHA256()
+def show_help():
+    print("\nAvailable commands:")
+    print("  register - Register a new user and generate a session token.")
+    print("  interact - Interact with the server using the session token.")
+    print("  help - Show this help message.")
+    print("  quit - Exit the program.\n")
+
+
+def register_device():    
+    global SESSION_TOKEN, USER_ID, PRIVATE_KEY, PUBLIC_KEY
+
+    # Generate the private key
+    PRIVATE_KEY = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,  # Adjust key size as needed
+        backend=default_backend()
     )
-    signature_hex = signature.hex()
-except Exception as e:
-    print(f"Error generating signature: {e}")
-    exit()
+    PUBLIC_KEY = PRIVATE_KEY.public_key()
 
-# 4. Send the signature and challenge to the server for verification
-verify_url = "http://127.0.0.1:5000/verify"  # Replace with your server's verification endpoint
-data = {"challenge": challenge_hex, "signature": signature_hex, "user_id":user_id} # Send challenge in hex format
+    # Serialize the public key (for sending to the server during registration, if needed)
+    public_pem = PUBLIC_KEY.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
 
-try:
-    print("Client verify")
-    verification_response = requests.post(verify_url, json=data)
-    if (verification_response.status_code == 200):
-        print("1")
-        verification_response.raise_for_status()
-        print("2")
-        verification_result = verification_response.json()
-        print("Verification result:", verification_result)
-        SESSION_TOKEN = verification_result["session_token"] 
+    # Register the public key with the server
+    print("=====\nRegistering device")
+    register_url = "http://127.0.0.1:5000/register"  
+    mac_address = get_mac_address()
+    register_data = {"public_key": public_pem.decode('utf-8'), "device": {"mac_address": mac_address}}  # Send public key as a string
+    try:
+        register_response = requests.post(register_url, json=register_data)
+        register_response.raise_for_status()
+        register_result = register_response.json()
+        challenge_hex = register_result.get("challenge")
+        #challenge = bytes.fromhex(challenge_hex) # Decode from hex to bytes
+        USER_ID = register_result.get("user_id")
+        #print("Registration result:", register_result)
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending registration request: {e}")
+        exit()
+    except json.JSONDecodeError as e:
+        print(f"Error parsing registration response: {e}")
+        exit()
+    print("Registration Success\n=====")
 
-        print("Got the token:", SESSION_TOKEN)
-    else:
-        print("Error Validating:", verification_response.json() )
-except requests.exceptions.RequestException as e:
-    print(f"Error sending verification request: {e}")
-    exit()
-except json.JSONDecodeError as e:
-    print(f"Error parsing verification response: {e}")
-    exit()
+
+    # 3. Generate the signature
+    verify(challenge_hex)
+
+
+def interact():
+    print("=====\nInteract starts")
+    global SESSION_TOKEN, USER_ID
+    interact_url = "http://127.0.0.1:5000/interact"  
+    data = {"session_token": SESSION_TOKEN, "user_id":USER_ID} 
+    print ("data to send")
+    print (data)
+    try:
+        interact_response = requests.post(interact_url, json=data)
+        if (interact_response.status_code == 200):
+            interact_response.raise_for_status()
+            interact_result = interact_response.json()
+            outcome = interact_result["outcome"]
+            print("Interact Success Outcome:", outcome, "\n=========")
+        else:
+            print("Error Validating:", interact_response.json() )
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending verification request: {e}")
+        exit()
+    except json.JSONDecodeError as e:
+        print(f"Error parsing verification response: {e}")
+        exit()
+
+def get_mac_address():
+    mac = ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff) for elements in range(0, 2*6, 2)][::-1])
+    return mac
+
+
+def verify(challenge_hex):
+    global SESSION_TOKEN, USER_ID, PRIVATE_KEY, PUBLIC_KEY
+    print("=====\nVerify starts")
+    challenge = bytes.fromhex(challenge_hex) # Decode from hex to bytes
+
+    try:
+        signature = PRIVATE_KEY.sign(
+            challenge,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        signature_hex = signature.hex()
+    except Exception as e:
+        print(f"Error generating signature: {e}")
+        exit()
+
+    # 4. Send the signature and challenge to the server for verification
+    verify_url = "http://127.0.0.1:5000/verify"  
+    data = {"challenge": challenge_hex, "signature": signature_hex, "user_id":USER_ID} # Send challenge in hex format
+
+    try:
+        verify_response = requests.post(verify_url, json=data)
+        if (verify_response.status_code == 200):
+            verify_response.raise_for_status()
+            verify_result = verify_response.json()
+            SESSION_TOKEN = verify_result["session_token"] 
+        else:
+            print("Error Validating:", verify_response.json() )
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending verification request: {e}")
+        exit()
+    except json.JSONDecodeError as e:
+        print(f"Error parsing verification response: {e}")
+        exit()
+    print("Verfication Completed\n=====")
+
+
+# Start CLI
+if __name__ == "__main__":
+    main()  
