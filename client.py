@@ -33,7 +33,7 @@ def main():
 
 def show_help():
     print("\nAvailable commands:")
-    print("  register - Register a new user and generate a session token.")
+    print("  register - Register a users device and generate a session token.")
     print("  interact - Interact with the server using the session token.")
     print("  help - Show this help message.")
     print("  quit - Exit the program.\n")
