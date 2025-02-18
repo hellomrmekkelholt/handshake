@@ -4,7 +4,7 @@ from cryptography.hazmat.backends import default_backend
 import json
 import requests
 import uuid
-
+import hashlib
 
 
 SESSION_TOKEN = None
@@ -60,7 +60,11 @@ def register_device():
     print("=====\nRegistering device")
     register_url = "http://127.0.0.1:5000/register"  
     mac_address = get_mac_address()
-    register_data = {"public_key": public_pem.decode('utf-8'), "device": {"mac_address": mac_address}}  # Send public key as a string
+    
+    # hardcoded workaround
+    username = "sample_user_name"
+    password = hash_string("secret_password")
+    register_data = {"username":username, "password":password, "public_key": public_pem.decode('utf-8'), "device": {"mac_address": mac_address}}  # Send public key as a string
     try:
         register_response = requests.post(register_url, json=register_data)
         register_response.raise_for_status()
@@ -75,7 +79,7 @@ def register_device():
     except json.JSONDecodeError as e:
         print(f"Error parsing registration response: {e}")
         exit()
-    print("Registration Success\n")
+    print("Registration Success\n=====\n")
 
 
     # 3. Generate the signature
@@ -85,17 +89,21 @@ def register_device():
 def interact():
     print("=====\nInteract starts")
     global SESSION_TOKEN, USER_ID
-    interact_url = "http://127.0.0.1:5000/interact"  
-    data = {"session_token": SESSION_TOKEN, "user_id":USER_ID} 
+    interact_url = "http://127.0.0.1:5000/interact"
+    headers = {
+        "Authorization": f"Bearer {SESSION_TOKEN}"
+    }
+      
+    #data = {"session_token": SESSION_TOKEN, "user_id":USER_ID} 
     try:
-        interact_response = requests.post(interact_url, json=data)
+        interact_response = requests.post(interact_url, headers=headers)
         if (interact_response.status_code == 200):
             interact_response.raise_for_status()
             interact_result = interact_response.json()
             outcome = interact_result["outcome"]
-            print("Interact Success Outcome:", outcome, "\n")
+            print("Interact Success Outcome:", outcome, "\n=====\n")
         elif (interact_response.status_code == 419):
-            print("Token expired call reconnect\n")
+            print("Token expired call reconnect\n=====\n")
             reconnect()
         else:
             print("Error Validating:", interact_response.json() )
@@ -106,9 +114,6 @@ def interact():
         print(f"Error parsing verification response: {e}")
         exit()
 
-def get_mac_address():
-    mac = ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff) for elements in range(0, 2*6, 2)][::-1])
-    return mac
 
 def reconnect():
     global  USER_ID
@@ -122,7 +127,7 @@ def reconnect():
             get_challenge_response.raise_for_status()
             get_challenge_result = get_challenge_response.json()
             challenge_hex = get_challenge_result["challenge"]
-            print("Challenge received\n")
+            print("Challenge received\n=====\n")
             verify(challenge_hex)
         else:
             print("get_challenge returned error")
@@ -150,7 +155,7 @@ def verify(challenge_hex):
         print(f"Error generating signature: {e}")
         exit()
 
-    # 4. Send the signature and challenge to the server for verification
+    # Send the signature and challenge to the server for verification
     verify_url = "http://127.0.0.1:5000/verify"  
     data = {"challenge": challenge_hex, "signature": signature_hex, "user_id":USER_ID} # Send challenge in hex format
 
@@ -159,7 +164,7 @@ def verify(challenge_hex):
         if (verify_response.status_code == 200):
             verify_response.raise_for_status()
             verify_result = verify_response.json()
-            SESSION_TOKEN = verify_result["session_token"] 
+            SESSION_TOKEN = verify_result["session_token"]
         else:
             print("Error Validating:", verify_response.json() )
     except requests.exceptions.RequestException as e:
@@ -168,7 +173,22 @@ def verify(challenge_hex):
     except json.JSONDecodeError as e:
         print(f"Error parsing verification response: {e}")
         exit()
-    print("Verfication Completed\n")
+    print("Verfication Completed\n====\n")
+
+
+#
+# Utilities
+#
+def get_mac_address():
+    mac = ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff) for elements in range(0, 2*6, 2)][::-1])
+    return mac
+
+def hash_string(input_string):
+    sha256_hash = hashlib.sha256()
+    sha256_hash.update(input_string.encode('utf-8'))
+    hashed_string = sha256_hash.hexdigest()
+    return hashed_string
+
 
 
 # Start CLI

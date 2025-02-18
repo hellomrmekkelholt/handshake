@@ -2,19 +2,16 @@ from flask import Flask, request, jsonify
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa  
 from cryptography.hazmat.backends import default_backend
-import binascii
-import time 
+#import binascii
+import time
+import jwt 
 app = Flask(__name__)
 
-# Dictionary to store public keys & session tokens by user ID 
-# e.g PUBLIC_KEYS[user_id] = {
-#   "public_key":public_key, 
-#   "device": [{"type":"value"}] i.e. "mac_address"
-#   "session_token":"hard_coded_session_token"
-# }  
-PUBLIC_KEYS = {}    
-CHALLENGES = {}     # Collection of challenges by user_id 
-TOKEN_EXPIRY_DURATION = 15 # Expires after 15 seconds (for POC)
+
+DEVICE_LIST = {}                # A list of devices by user_id / limits 1 device to 1 user 
+CHALLENGES = {}                 # Collection of challenges by user_id 
+TOKEN_EXPIRY_DURATION = 15      # Expires after 15 seconds (for POC)
+SECRET_KEY = "temporary_key"    # Used to seed JWT token
 
 #
 # register receives public key and returns a challenge
@@ -25,6 +22,8 @@ def register():
         data = request.get_json()
         public_key_pem = data.get("public_key")
         device = data.get("device")
+        username = data.get("username")
+        password = data.get("password")
 
         if not public_key_pem:
             return jsonify({"status": "error", "message": "Missing public key"}), 400
@@ -34,15 +33,16 @@ def register():
                 public_key_pem.encode('utf-8'),
                 backend=default_backend()
             )
-            user_id = "user123" # Hard coded user (replace with a call to users table etc)
-            PUBLIC_KEYS[user_id] = {"public_key":public_key}
-            PUBLIC_KEYS[user_id]["device"] = device
+            user_id = validate_user(username, password)
+            DEVICE_LIST[user_id] = {"public_key":public_key}
+            DEVICE_LIST[user_id]["device"] = device
         except Exception as e:
             print(e)
             return jsonify({"status": "error", "message": f"Invalid public key: {e}"}), 400
 
-        challenge = "random_challenge".encode('utf-8') # Hard coded challenge @todo challenge is hash of key
+        challenge = make_challenge()
         CHALLENGES[user_id] = challenge 
+        print("\n/register is returning a challenge")
         return jsonify({"status": "success", "message": "Registration successful", "challenge": challenge.hex(), "user_id":user_id}) # Return challenge to client
 
     except (ValueError, KeyError, TypeError) as e:
@@ -53,8 +53,7 @@ def register():
 #
 @app.route("/verify", methods=["POST"])
 def verify():
-    global PUBLIC_KEYS
-    print("=====\nhandshake.verify()")
+    global DEVICE_LIST
     try:
         data = request.get_json()
         challenge = data.get("challenge").encode('utf-8') 
@@ -65,7 +64,7 @@ def verify():
         
         signature = bytes.fromhex(signature_hex) # Convert hex back to bytes
         user_id = data.get("user_id") #@todo hash user_id
-        public_key = PUBLIC_KEYS[user_id]["public_key"]
+        public_key = DEVICE_LIST[user_id]["public_key"]
         stored_challenge = CHALLENGES.get(user_id) # Retrieve the stored challenge
 
         if not public_key or not stored_challenge:
@@ -84,12 +83,16 @@ def verify():
         except Exception as e: # Catch any verification errors
             return jsonify({"status": "error", "message": f"Signature verification failed: {e}"}), 400
 
-        # ... (If verification is successful, proceed with authentication) ...
-        PUBLIC_KEYS[user_id]["session_token"] = "hard_coded_session_token"
-        PUBLIC_KEYS[user_id]["session_token_create"] = time.time() 
-        PUBLIC_KEYS[user_id]["session_token_expiry"] = time.time() + TOKEN_EXPIRY_DURATION
-        print("handshake.verify() success")
-        return jsonify({"status": "success", "message": "Authentication successful", "session_token":"hard_coded_session_token"})
+        # Create a JWT token
+        token_data = {
+            "user_id": user_id,
+            "session_token_create": time.time(), # Set create time
+            "session_token_expiry": time.time() + TOKEN_EXPIRY_DURATION  # Set expiration time
+        }
+        jwt_token = jwt.encode(token_data, SECRET_KEY, algorithm="HS256")
+        DEVICE_LIST[user_id]["session_token"] = jwt_token
+        print("\n/verify is returning a token")
+        return jsonify({"status": "success", "message": "Authentication successful", "session_token": jwt_token})
 
     except (ValueError, KeyError, TypeError) as e:        
         return jsonify({"status": "error", "message": f"An error occurred: {e}"}), 500
@@ -99,60 +102,80 @@ def verify():
 #
 @app.route("/interact", methods=["POST"])
 def interact():
-    global PUBLIC_KEYS
-    print("====\nhandshake.interact()")
+    global DEVICE_LIST
     try:
-        data = request.get_json()
-        current_user_id = data.get("user_id") 
-        session_token = data.get("session_token") 
-        print("Interact 1")
-        if validate_token(current_user_id, session_token):
-            print("Interact pass")
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return jsonify({"status": "error", "message": "Authorization header missing"}), 401
+
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"status": "error", "message": "Invalid authorization header format"}), 401
+
+        # Extract the token from the header
+        session_token = auth_header.split(" ")[1]  
+        if validate_token(session_token):
+            print("\n/interact token is valid so returning a response")
             return jsonify({"status": "success", "message": f"Interact OK", "outcome":"Hello World (Authenticated)"}) 
         else:
-            print("Interact token expired")
+            print("\n/interact token is invalid so returning a 419 error")
             return jsonify({"status": "error", "message": "No valid session"}), 419
     except Exception as e: # Catch any verification errors
         return jsonify({"status": "error", "message": f"Session verification failed: {e}"}), 400
 
 
 #
-# Verifies signature and challenge and creates a token 
+# generates challenge to a user_id 
 #
 @app.route("/get_challenge", methods=["POST"])
 def get_challenge():
     global CHALLENGES
-    print("in get challenge")
     try:
         data = request.get_json()
-        print("data")
-        print(data)
-        #device = data.get("device")
-        current_user_id = data.get("user_id")
-        print("user?",current_user_id)
-        challenge = "new_random_challenge".encode('utf-8') # Hard coded challenge @todo challenge is hash of key
-        print("challenge",current_user_id)
-        CHALLENGES[current_user_id] = challenge 
-        return jsonify({"status": "success", "message": "Registration successful", "challenge": challenge.hex(), "user_id":current_user_id}) # Return challenge to client
+        current_device = data.get("device") 
+        user_id = data.get("user_id")
+        listed_device = DEVICE_LIST[user_id]['device']
+        if current_device == listed_device:
+            challenge = make_challenge()
+            CHALLENGES[user_id] = challenge 
+            print("\n/get_challenge valid user_id & device so return new challenge")
+            return jsonify({"status": "success", "message": "Registration successful", "challenge": challenge.hex(), "user_id":user_id}) # Return challenge to client
+        else:
+            return jsonify({"status": "error", "message": f"devices do not match: {e}"}), 400
     except Exception as e: # Catch any verification errors
         print(e)
         return jsonify({"status": "error", "message": f"get_challenge error: {e}"}), 400
 
 
-
 #
 # Compare user session tokens match and the expiry hasn't been exceed
 #
-def validate_token(current_user_id, received_token):
-    global PUBLIC_KEYS
+def validate_token(received_token):
+    global DEVICE_LIST, SECRET_KEY
     result = False
-    if received_token == PUBLIC_KEYS[current_user_id]["session_token"]:
-        session_token_expiry = PUBLIC_KEYS[current_user_id]["session_token_expiry"]
-        # Check if the session token is still valid
-        if time.time() <= session_token_expiry:
-            result = True
-    return result
+    try:
+        decoded_payload = jwt.decode(received_token, SECRET_KEY, algorithms=["HS256"])
+        user_id = decoded_payload["user_id"]  
+        session_token_expiry = decoded_payload["session_token_expiry"] 
+        # Check token exists 
+        if received_token == DEVICE_LIST[user_id]["session_token"]:
+            # Check if the session token is still valid
+            if time.time() <= session_token_expiry:
+                result = True
+        return result
+    except Exception as e: 
+        return False
 
+
+#
+# validate_user: hard codes a user_id but this is a stub to look up database, registry  
+#
+def validate_user(username, password):
+    # pasword is probably hashlib.sha256()
+    return "user123"
+
+def make_challenge():
+    # Hard coded challenge should be dynamic seeded based on user_id & device
+    return "random_challenge".encode('utf-8') 
 
 if __name__ == "__main__":
-    app.run(debug=True)  # Set debug=False in production
+    app.run(debug=True) 
