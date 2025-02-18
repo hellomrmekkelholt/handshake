@@ -54,6 +54,7 @@ When running you will see messages saying *Registration successful* and *Verfica
 ## Accessing API docs 
 `server.py` has swagger comments to generate API docs you can access them here:
  http://127.0.0.1:5000/apidocs/#/default
+ or pdf of the [API docs here](https://github.com/user-attachments/files/18855064/authentication-api.pdf)
 
  ## Overview of the flow
 ![authentication](https://github.com/user-attachments/assets/a93bcc10-d89b-4f37-82b7-c1a00037a7bf)
