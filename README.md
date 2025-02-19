@@ -61,6 +61,6 @@ When running you will see messages saying *Registration successful* and *Verfica
 
 #### interact
 The session token is only valid for 15 seconds (for proof of concept)
-4. A successful interact call returns `Hello World (Authenticated)` 
-5. If you call **interact** with an expired token it returns `419` error and the messages will show *Attempt reconnect* and *Verifcation Complete* messages indicating a new session_token and another 15 seconds  
-6. If you call **interact** without a token it will try to verify but the device isn't registered so it will fail. 
+1. A successful interact call returns `Hello World (Authenticated)` 
+2. If you call **interact** with an expired token it returns `419` error. The client will attempt to reconnect, displaying messages *Attempt reconnect* and *Verifcation Complete* indicating a new session_token is created with a life span of another 15 seconds  
+3. If you call **interact** without a token it will try to verify but the device isn't registered so it will fail. 
