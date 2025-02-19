@@ -138,7 +138,7 @@ def verify():
             return jsonify({"status": "error", "message": "Missing challenge or signature"}), 400
         
         signature = bytes.fromhex(signature_hex) # Convert hex back to bytes
-        user_id = data.get("user_id") #@todo hash user_id
+        user_id = data.get("user_id") #@todo if this hashed / unhash 
         public_key = DEVICE_LIST[user_id]["public_key"]
         stored_challenge = CHALLENGES.get(user_id) # Retrieve the stored challenge
 
@@ -155,7 +155,7 @@ def verify():
                 ),
                 hashes.SHA256()
             )
-        except Exception as e: # Catch any verification errors
+        except Exception as e: 
             return jsonify({"status": "error", "message": f"Signature verification failed: {e}"}), 400
 
         # Create a JWT token
@@ -163,7 +163,8 @@ def verify():
             "user_id": user_id,
             "session_token_create": time.time(), # Set create time
             "session_token_expiry": time.time() + TOKEN_EXPIRY_DURATION  # Set expiration time
-        }
+        } #@todo drop create time and add a refresh token 
+
         jwt_token = jwt.encode(token_data, SECRET_KEY, algorithm="HS256")
         DEVICE_LIST[user_id]["session_token"] = jwt_token
         print("\n/verify is returning a token")
@@ -173,7 +174,7 @@ def verify():
         return jsonify({"status": "error", "message": f"An error occurred: {e}"}), 500
 
 #
-# Verifies signature and challenge and creates a token 
+# Provides a sample endpoint for the client to trial interacting with  
 #
 @app.route("/interact", methods=["POST"])
 def interact():
@@ -210,7 +211,7 @@ def interact():
         if not auth_header.startswith("Bearer "):
             return jsonify({"status": "error", "message": "Invalid authorization header format"}), 401
 
-        # Extract the token from the header
+        # Get token from the header > authorization 
         session_token = auth_header.split(" ")[1]  
         if validate_token(session_token):
             print("\n/interact token is valid so returning a response")
@@ -218,12 +219,12 @@ def interact():
         else:
             print("\n/interact token is invalid so returning a 419 error")
             return jsonify({"status": "error", "message": "No valid session"}), 419
-    except Exception as e: # Catch any verification errors
+    except Exception as e: 
         return jsonify({"status": "error", "message": f"Session verification failed: {e}"}), 400
 
 
 #
-# generates challenge to a user_id 
+# generates challenge for a user_id and matching device 
 #
 @app.route("/get_challenge", methods=["POST"])
 def get_challenge():
@@ -271,7 +272,7 @@ def get_challenge():
             return jsonify({"status": "success", "message": "Registration successful", "challenge": challenge.hex(), "user_id":user_id}) # Return challenge to client
         else:
             return jsonify({"status": "error", "message": f"devices do not match: {e}"}), 400
-    except Exception as e: # Catch any verification errors
+    except Exception as e: 
         print(e)
         return jsonify({"status": "error", "message": f"get_challenge error: {e}"}), 400
 
@@ -288,7 +289,7 @@ def validate_token(received_token):
         session_token_expiry = decoded_payload["session_token_expiry"] 
         # Check token exists 
         if received_token == DEVICE_LIST[user_id]["session_token"]:
-            # Check if the session token is still valid
+            # Check if the session token is still valid (greater than now)
             if time.time() <= session_token_expiry:
                 result = True
         return result
@@ -297,14 +298,14 @@ def validate_token(received_token):
 
 
 #
-# validate_user: hard codes a user_id but this is a stub to look up database, registry  
+# validate_user: hard codes a user_id this is a stub to 
+# a call to access a database, registryIAM registry etc  
 #
 def validate_user(username, password):
-    # pasword is probably hashlib.sha256()
     return "user123"
 
 def make_challenge():
-    # Hard coded challenge should be dynamic seeded based on user_id & device
+    # Hard coded challenge should be dynamic and seeded based on user_id & device
     return "random_challenge".encode('utf-8') 
 
 if __name__ == "__main__":

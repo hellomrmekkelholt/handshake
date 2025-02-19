@@ -43,13 +43,17 @@ Available commands:
 * help - Show this help message
 * quit - Exit the program
 
-### register & interact
-When running you will see messages saying *Registration successful* and *Verfication Completed* - these indicate the server has 
-1. The device was registered and a challenge was returned
+### register 
+When running you will see messages saying *Registration successful* and *Verfication Completed* - these indicate the  
+1. The device was registered on the server and a challenge was returned
 2. The challenge once signed was verified
-3. You can now run the **interact** option. But for only 15 seconds (for proof of concept the session expires after 15 seconds)
+3. You can now run the **interact** option. 
+
+### interact
+The session token is only valid for 15 seconds (for proof of concept)
 4. A successful interact call returns `Hello World (Authenticated)` 
 5. If you call **interact** with an expired token it returns `419` error and the messages will show *Attempt reconnect* and *Verifcation Complete* messages indicating a new session_token and another 15 seconds  
+6. If you call **interact** without a token it will try to verify but the device isn't registered so it will fail. 
 
 ## Accessing API docs 
 `server.py` has swagger comments to generate API docs you can access them here:

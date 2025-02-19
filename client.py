@@ -6,14 +6,14 @@ import requests
 import uuid
 import hashlib
 
-
+# Globals
 SESSION_TOKEN = None
 USER_ID = None
 PRIVATE_KEY = None
 PUBLIC_KEY = None
 
 def main():
-    print("handshake client: \nOptions: register, interact, help and quit \n\n")
+    print("handshake client:\n=============== \nOptions: register, interact, help and quit \n\n")
 
     while True:
         user_input = input("Enter a command (or type 'quit' or 'help' ): \n").strip().lower()
@@ -38,19 +38,22 @@ def show_help():
     print("  help - Show this help message.")
     print("  quit - Exit the program.\n")
 
-
+#
+# registers this device with server. 
+# The server returns a challenge which is passed to the verify(challenge) function  
+#
 def register_device():    
     global SESSION_TOKEN, USER_ID, PRIVATE_KEY, PUBLIC_KEY
 
     # Generate the private key
     PRIVATE_KEY = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=2048,  # Adjust key size as needed
+        key_size=2048, 
         backend=default_backend()
     )
     PUBLIC_KEY = PRIVATE_KEY.public_key()
 
-    # Serialize the public key (for sending to the server during registration, if needed)
+    # Serialize public key
     public_pem = PUBLIC_KEY.public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -61,47 +64,45 @@ def register_device():
     register_url = "http://127.0.0.1:5000/register"  
     mac_address = get_mac_address()
     
-    # hardcoded workaround
-    username = "sample_user_name"
-    password = hash_string("secret_password")
+    username = "sample_user_name"               # these are hard coded as a workaround
+    password = hash_string("secret_password")   # but should be provided by the user
+
     register_data = {"username":username, "password":password, "public_key": public_pem.decode('utf-8'), "device": {"mac_address": mac_address}}  # Send public key as a string
     try:
         register_response = requests.post(register_url, json=register_data)
         register_response.raise_for_status()
         register_result = register_response.json()
         challenge_hex = register_result.get("challenge")
-        #challenge = bytes.fromhex(challenge_hex) # Decode from hex to bytes
         USER_ID = register_result.get("user_id")
-        #print("Registration result:", register_result)
     except requests.exceptions.RequestException as e:
         print(f"Error sending registration request: {e}")
         exit()
     except json.JSONDecodeError as e:
         print(f"Error parsing registration response: {e}")
         exit()
-    print("Registration Success\n=====\n")
+    print("Device registered\n=====\n")
 
+    # Verify the challenge that was returned
+    sign_verify(challenge_hex)
 
-    # 3. Generate the signature
-    verify(challenge_hex)
-
-
+#
+# simulation of client interacting with the server. 
+# If the token has expired it calls reconnect() update token  
+#
 def interact():
     print("=====\nInteract starts")
     global SESSION_TOKEN, USER_ID
     interact_url = "http://127.0.0.1:5000/interact"
-    headers = {
-        "Authorization": f"Bearer {SESSION_TOKEN}"
-    }
-      
-    #data = {"session_token": SESSION_TOKEN, "user_id":USER_ID} 
     try:
+        headers = {
+            "Authorization": f"Bearer {SESSION_TOKEN}"
+        }      
         interact_response = requests.post(interact_url, headers=headers)
         if (interact_response.status_code == 200):
             interact_response.raise_for_status()
             interact_result = interact_response.json()
             outcome = interact_result["outcome"]
-            print("Interact Success Outcome:", outcome, "\n=====\n")
+            print("Interact Success. Outcome is \"", outcome, "\".\n=====\n")
         elif (interact_response.status_code == 419):
             print("Token expired call reconnect\n=====\n")
             reconnect()
@@ -114,7 +115,10 @@ def interact():
         print(f"Error parsing verification response: {e}")
         exit()
 
-
+#
+# reconnect is called when the token has expired and asks for a new challenge
+# the sign_verify function returns 
+#
 def reconnect():
     global  USER_ID
     print("====\nAttempt reconnect")
@@ -128,7 +132,7 @@ def reconnect():
             get_challenge_result = get_challenge_response.json()
             challenge_hex = get_challenge_result["challenge"]
             print("Challenge received\n=====\n")
-            verify(challenge_hex)
+            sign_verify(challenge_hex)
         else:
             print("get_challenge returned error")
     except Exception as e:
@@ -136,11 +140,12 @@ def reconnect():
         exit()
 
 
-def verify(challenge_hex):
+def sign_verify(challenge_hex):
     global SESSION_TOKEN, USER_ID, PRIVATE_KEY, PUBLIC_KEY
-    print("=====\nVerify starts")
+    print("=====\nSign & Verify starts")
     challenge = bytes.fromhex(challenge_hex) # Decode from hex to bytes
 
+    # Signing
     try:
         signature = PRIVATE_KEY.sign(
             challenge,
@@ -155,9 +160,13 @@ def verify(challenge_hex):
         print(f"Error generating signature: {e}")
         exit()
 
-    # Send the signature and challenge to the server for verification
+    # Send for verification
     verify_url = "http://127.0.0.1:5000/verify"  
-    data = {"challenge": challenge_hex, "signature": signature_hex, "user_id":USER_ID} # Send challenge in hex format
+    data = {
+            "challenge": challenge_hex, 
+            "signature": signature_hex, 
+            "user_id":USER_ID # @todo hash user_id
+            } 
 
     try:
         verify_response = requests.post(verify_url, json=data)
@@ -165,6 +174,7 @@ def verify(challenge_hex):
             verify_response.raise_for_status()
             verify_result = verify_response.json()
             SESSION_TOKEN = verify_result["session_token"]
+            print("Sign & Verfiy Successful\n====\n")
         else:
             print("Error Validating:", verify_response.json() )
     except requests.exceptions.RequestException as e:
@@ -173,7 +183,6 @@ def verify(challenge_hex):
     except json.JSONDecodeError as e:
         print(f"Error parsing verification response: {e}")
         exit()
-    print("Verfication Completed\n====\n")
 
 
 #
@@ -190,7 +199,8 @@ def hash_string(input_string):
     return hashed_string
 
 
-
+#
 # Start CLI
+#
 if __name__ == "__main__":
     main()  
