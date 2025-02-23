@@ -36,15 +36,23 @@ The `server.py` script has implementation of the end points in the diagram.
     pip3 install -r requirements.txt
     ```
 
-5. Start the server and the client: 
+5. Start the server (while inside the virtual environement) : 
 
     ```bash
     python server.py
-    python client.py
     -- or --
     python3 server.py
+    ```
+6. Start the client in a new terminal (remember to activate the virtual environment) : 
+
+    ```bash
+    source <your_env_name>/bin/activate
+    
+    python client.py
+    -- or --
     python3 client.py
     ```
+
 
 ### Using the Client
 Available commands:
