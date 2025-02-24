@@ -1,15 +1,24 @@
 # Handshake 
-A client / server application that uses private public keys to validate a digital signature and authenticate a device.
+* A draft implementation of the attestation API endpoint
+* A client / server application that uses private public keys to validate a digital signature and authenticate a device.
 
- ## Client Server Interaction Diagram
+## Client Server Interaction Diagram for Attestation
+![attestation](https://github.com/user-attachments/assets/9e31175e-1c2e-45ca-b7bf-4b9db3d18dd0)
+
+## Attestation (attestation.py) API docs
+* [Attestation API docs here](https://github.com/user-attachments/files/18942077/attestation.pdf)
+* The `attestation.py` script has swagger comments to generate API docs. Running `attestaion.py` will generate API docs at: http://127.0.0.1:5000/apidocs/#/default
+
+## Client Server Interaction Diagram for Digital Signature
 ![Client Server Interaction Diagram](https://github.com/user-attachments/assets/a93bcc10-d89b-4f37-82b7-c1a00037a7bf)
 
-## API docs 
-[API docs here](https://github.com/user-attachments/files/18855064/authentication-api.pdf)
-Additionally, the `server.py` script has swagger comments to generate API docs. Running `server.py` will generate API docs at: http://127.0.0.1:5000/apidocs/#/default
+## Digital Signature (server.py) API docs 
+* [Digital signature API docs here](https://github.com/user-attachments/files/18855064/authentication-api.pdf)
+* The `server.py` script has swagger comments to generate API docs. Running `server.py` will generate API docs at: http://127.0.0.1:5000/apidocs/#/default
 
 ## API Code
-The `server.py` script has implementation of the end points in the diagram. 
+* The `attestation.py` script has the implementation of the end points in the Diagram for Attestation. 
+* The `server.py` script has implementation of the end points in the Diagram for Signage. 
 
 ## Client Server Installation
 **Note** Using tools like Postman to test the API endpoints (with public keys and signed challenges) can be cumbersome. The `client.py` script allows you to simulate the process.  
