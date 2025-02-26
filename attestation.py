@@ -19,65 +19,60 @@ CHALLENGE_EXPIRY = 10           # Challenges remain valid for 10 seconds
 
 
 DEVICE_LIST = {}                # A list of devices by user_id / limits 1 device to 1 user 
-TOKEN_EXPIRY_DURATION = 15      # Expires after 15 seconds (for POC)
 SECRET_KEY = "temporary_key"    # Used to seed JWT token
 
 #
-# register receives public key and returns a challenge
+# login valdiates user before requesting device attestation
 #  
-@app.route("/secure_request", methods=["POST"])
-def secure_request():
+@app.route("/login", methods=["POST"])
+def login():
     """
-    Requires token verification but also 
-    Requires device attestaion before returning the response.
+    Validates user before generating challenge for Client's attestation request.
     ---
     parameters:
-      - name: Authorization
-        in: header
+      - name: username
+        in: body
         type: string
         required: true
-        description: Bearer token
+      - name: password
+        in: body
+        type: string
+        required: true
     responses:
       200:
+        status: attestation_required
+        message: attestation required
         schema:
           type: object
           properties:
             challenge:
               type: string
-          description: Attestation Required
-      400:
-        description: Bad request
+            attestation_status:
+              type: string
+              description: either unverified or verified
+            user:
+              type: object 
+              properties:
+                username:
+                  type: string
       401:
         description: Unauthorized
-      419:
-        description: Token has expired
+        status: invalid_user
+        message: No matching user credentials 
+
     """
+    token = ""
     try:
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
-          return jsonify({"status": "error", "message": "Authorization header missing"}), 401
-
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"status": "error", "message": "Invalid authorization header format"}), 401
-
-        # Get token from the header > authorization 
-        session_token = auth_header.split(" ")[1]  
-        if validate_token(session_token):
-            print("\n/secure_request requires attestation to proceed. Generate challenge  ")
-            challenge = make_challenge()
-            return jsonify({"status": "attestation_required", "message": "Attestation Reuired", "challenge": challenge.hex()}) # Return challenge to client
-        else:
-          print("\n/interact token is invalid so returning a 419 error")
-          return jsonify({"status": "error", "message": "No valid session"}), 419
+      return jsonify({"status": "attestaion_required", "message": "Attestation Required", "token":token})
     except Exception as e:
-      return jsonify({"status": "error", "message": f"Session verification failed: {e}"}), 400
+      return jsonify({"status": "Unauthorized", "message": "Invalid crednetialds: {e}"}), 401
 
 
 #
 # Verifies the attestation and challenge and creates a token 
 #
-@app.route("/verify_attestation", methods=["POST"])
-def verify_attestation(attestation_object_base64):
+@app.route("/verify_device", methods=["POST"])
+def verify_device(attestation_object_base64):
     """
     Requires token verification but also requires attestation request object to verify the device.
     ---
@@ -93,83 +88,46 @@ def verify_attestation(attestation_object_base64):
         schema:
           type: object
           properties:
-            challenge:
-              type: string
-              example: "base64_encoded_challenge"
             keyId:
               type: string        
               example: "base64_encoded_key_id"
             creationData:
               type: string        
               example: "base64_encoded_creation_data"
+            challenge:
+              type: string
+              example: "base64_encoded_challenge"
             signature:
               type: string        
               example: "base64_encoded_signature"
     responses:
       200:
-        description: Device's attestation successful 
+        status: success
+        message: Device's attestation successful 
+        schema:
+          type: object
+          properties:
+            challenge:
+              type: string
+            attestation_status:
+              type: string
+              description: either unverified or verified
+            user:
+              type: object 
+              properties:
+                username:
+                  type: string
+      403:
+        description: Unauthorized
         schema:
           type: object
           properties:
             session_token:
               type: string
-      403:
         description: Forbidden
-      500: 
-        description: Server Error
     """
-    try:
-        # decode attestation object
-        attestation_object_bytes = base64.b64decode(attestation_object_base64)
-        attestation_object = json.loads(attestation_object_bytes.decode('utf-8'))
-
-        # Not used but would be needed to identify the key 
-        # used to sign the attestation object.
-        key_id = base64.b64decode(attestation_object["keyId"])
-        signature = base64.b64decode(attestation_object["signature"])
-        client_challenge = base64.b64decode(attestation_object["challenge"])
-        stored_challenge = CHALLENGES.get(client_challenge)
-        creation_data_bytes = base64.b64decode(attestation_object["creationData"])
-
-        #1  Verify the Challenge Returned Matches the Server's Challenge
-        if stored_challenge != None or client_challenge != stored_challenge:
-            print("Challenge verification failed: Challenges do not match.")
-            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
-
-        # 2. Verify the Attestation Request Object with Apple
-        # 2.1 Parse the CMS structure from creationData
-        signed_data = cms.ContentInfo.load(creation_data_bytes)['content']
-        certificates = signed_data['certificates']
-        if not certificates:
-            print("No certificates found in creation data.")
-            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
-
-        # 2.2 Verify Certificate Chain
-        if not verify_certificate_chain(certificates):
-            print("Certificate chain verification failed.")
-            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
-
-        # 2.3 Verify Signature of Attestation Object
-        apple_public_key = certificates[-1].public_key() #Using root certificate for signature verification
-        verifier = signature_verification(apple_public_key, signed_data['encap_content_info']['content'].native, signature)
-        if not verifier:
-            print("Attestation object signature verification failed")
-            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
-
-        # 3. Verify Device State (within creation data)
-        # In a real world scenario, you would parse the creation data and perform your checks.
-        print("Device state verification successful (placeholder)")
-        print("Attestation verified successfully")
-
-        #
-        # Complete secure_request 
-        #
-        body = complete_secure_request()
-        return jsonify({"status": "success", "message": "Access Forbidden", "body": body})
-
-    except Exception as e:
-        print(f"Error verifying attestation: {e}")
-        return False
+    token = ""
+    return jsonify({"status": "success", "message": "Access Forbidden", "token": token })
 
 
 
@@ -177,63 +135,20 @@ def verify_attestation(attestation_object_base64):
 # Verifies a certificate chain
 #
 def verify_certificate_chain(certificates):
-    try:
-        for i in range(len(certificates) - 1):
-            issuer = certificates[i + 1]
-            subject = certificates[i]
-
-            try:
-                issuer_public_key = issuer.public_key
-                issuer_public_key.verify(
-                    subject.signature_value.native,
-                    subject.tbs_certificate.dump(),
-                    ec.ECDSA(hashes.SHA256())
-                )
-            except Exception as e:
-                print(f"Certificate chain verification failed: {e}")
-                return False
-
-        # Verify the root certificate 
-        # ?? revocation c
-        root_cert = certificates[-1]
-        #print(f"Root certificate: {root_cert.subject}")
-        #print("Certificate chain verification successful.")
-        return True
-
-    except Exception as e:
-        print(f"Error verifying certificate chain: {e}")
-        return False
+    return True
 
 #
 # uses Apple's public key to verify signature   
 #
 def signature_verification(public_key, data, signature):
-    try:
-        public_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
-        return True
-    except Exception as e:
-        print(f"Signature verification error: {e}")
-        return False
-
+    return True
+    
 
 #
 # Compare user session tokens match and the expiry hasn't been exceed
 #
 def validate_token(received_token):
-    global DEVICE_LIST, SECRET_KEY
-    result = False
-    try:
-        decoded_payload = jwt.decode(received_token, SECRET_KEY, algorithms=["HS256"])
-        user_id = decoded_payload["user_id"]  
-        session_token_expiry = decoded_payload["session_token_expiry"] 
-        # Check token exists 
-        if received_token == DEVICE_LIST[user_id]["session_token"]:
-            # Check if the session token is still valid (greater than now)
-            if time.time() <= session_token_expiry:
-                result = True
-        return result
-    except Exception as e: 
-        return False
+    result = True
 
 
 
