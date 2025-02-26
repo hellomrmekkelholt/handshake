@@ -3,12 +3,17 @@
 * A client / server application that uses private public keys to validate a digital signature and authenticate a device.
 
 ## Client Server Interaction Diagram for Attestation
-![attestation](https://github.com/user-attachments/assets/9e31175e-1c2e-45ca-b7bf-4b9db3d18dd0)
+* ![Revised Client Server Attestation Flow](https://github.com/user-attachments/assets/8e76fab4-8d5f-4c9b-b013-c1f0fe72ed3b)
 
 ## Attestation (attestation.py) API docs
-* [Attestation API docs here](https://github.com/user-attachments/files/18942077/attestation.pdf)
+* [Revised Attestation API](https://github.com/user-attachments/files/18998900/attestation_api.pdf)
 * The `attestation.py` script has swagger comments to generate API docs. Running `attestaion.py` will generate API docs at: http://127.0.0.1:5000/apidocs/#/default
 
+
+---
+
+
+## Previous Versions 
 ## Client Server Interaction Diagram for Digital Signature
 ![Client Server Interaction Diagram](https://github.com/user-attachments/assets/a93bcc10-d89b-4f37-82b7-c1a00037a7bf)
 
