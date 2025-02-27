@@ -13,25 +13,22 @@ import json
 app = Flask(__name__)
 swagger = Swagger(app)
 
-CHALLENGES = {}                 # Collection of challenges  
+CHALLENGES = {}                 # Collection of nonces  
 CHALLENGE_EXPIRY = 10           # Challenges remain valid for 10 seconds
-SECRET_KEY = "temporary_key"    # Used to seed JWT token
+SECRET_KEY = "temporary_key"    # Example used to sign JWT token (instead of using the Server's private key)
 TOKEN_EXPIRY_DURATION = 15      # Time the token expires is short 15 seconds for testing
 
 # Mockup of precached Apple Public Keys (Replace with real keys)
 APPLE_PUBLIC_KEYS = {
     "key1": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYFK4EEAAoDQgAEfakekey1...\n-----END PUBLIC KEY-----\n",
     "key2": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYFK4EEAAoDQgAEfakekey2...\n-----END PUBLIC KEY-----\n",
-    # Add more keys as needed
 }
 
-#
-# login valdiates user before requesting device attestation
-#  
+  
 @app.route("/login", methods=["POST"])
 def login(username, password):
     """
-    Validates user before generating challenge for Client's attestation request.
+    Validates user, before returning a challenge to the Client to use for an attestation request.
     ---
     parameters:
       - name: username
@@ -71,7 +68,7 @@ def login(username, password):
         challenge = make_challenge()
         # Create a JWT token
         token_data = {
-            "user": jsonify(user),
+            "user": user,
             "attestation_status": "unverified",
             "challenge": challenge,
             "session_token_expiry": time.time() + TOKEN_EXPIRY_DURATION  # Set expiration time
@@ -80,18 +77,16 @@ def login(username, password):
         jwt_token = jwt.encode(token_data, SECRET_KEY, algorithm="HS256")
         return jsonify({"status": "attestation_required", "message": "Attestaion required", "session_token": jwt_token})
       else:
-        return jsonify({"status": "attestaion_required", "message": "Attestation Required", "token":token})
+        return jsonify({"status": "Unauthorized", "message": "No matching user credentials: {e}"}), 401
     except Exception as e:
       return jsonify({"status": "Unauthorized", "message": "No matching user credentials: {e}"}), 401
 
 
-#
-# Verifies the attestation and challenge and creates a token 
-#
+
 @app.route("/verify_device", methods=["POST"])
 def verify_device(attestation_object_base64):
     """
-    Requires attestation request object to verify the device. If successful updates the token
+    Verifies the challenge, certificate chain and signature of attestation request. If successful updates the token's attestation_status = verified 
     ---
     parameters:
       - name: Authorization
@@ -156,17 +151,18 @@ def verify_device(attestation_object_base64):
         # decode attestation object
         attestation_object_bytes = base64.b64decode(attestation_object_base64)
         attestation_object = json.loads(attestation_object_bytes.decode('utf-8'))
-
+        # get values out of object
         key_id_base64 = base64.b64decode(attestation_object["keyId"])
         signature = base64.b64decode(attestation_object["signature"])
-        client_challenge = base64.b64decode(attestation_object["challenge"])
-        stored_challenge = CHALLENGES.get(client_challenge)
         creation_data_bytes = base64.b64decode(attestation_object["creationData"])
+        client_challenge = base64.b64decode(attestation_object["challenge"])
+        # Verify the challenge (nonce).
+        if CHALLENGES.get(client_challenge) is None:
+            print("Challenge Nonce not found, or is a replay attack")
+            return jsonify({"status": "Forbidden", "message": "Nonce verification failed"}), 403
+        # Remove challenge to prevent replay
+        del CHALLENGES[client_challenge]
 
-        #1  Verify the Challenge Returned Matches the Server's Challenge
-        if stored_challenge != None or client_challenge != stored_challenge:
-            print("Challenge verification failed: Challenges do not match.")
-            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
         # 2. Verify the Attestation Request Object with Apple
         # 2.1 Parse the CMS structure from creationData
         signed_data = cms.ContentInfo.load(creation_data_bytes)['content']
@@ -181,44 +177,41 @@ def verify_device(attestation_object_base64):
             return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
 
         # 2.3 Verify Signature of Attestation Object using keyId
-        key_id = base64.b64decode(key_id_base64).decode("utf-8") #decode from base64 to string.
+        key_id = base64.b64decode(key_id_base64).decode("utf-8") 
 
         if key_id not in APPLE_PUBLIC_KEYS:
             print(f"Key ID '{key_id}' not found.")
-            return False
+            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
 
+        # Use apple public key to verify the signature on the device's attestation request 
         apple_public_key_pem = APPLE_PUBLIC_KEYS[key_id]
         apple_public_key = x509.load_pem_public_key(apple_public_key_pem.encode('utf-8'), default_backend()).public_key()
         verifier = signature_verification(apple_public_key, signed_data['encap_content_info']['content'].native, signature)
 
         if not verifier:
             print("Attestation object signature verification failed")
-            return False
+            return jsonify({"status": "Forbidden", "message": "Access Forbidden"}), 403
         
         # 3. Verify Device State (within creation data)
-        # In a real world scenario, you would parse the creation data and perform 
-        # checks on secure enclave, boot state, operating system.
+        # Should confirm source is from a secure enclave, boot state hasn't been comproimised etc
         print("Device state verification successful (placeholder)")
         print("Attestation verified successfully")
 
         # Create new token
         token_data = {
-            "user": jsonify(user),
+            "user": user,
             "attestation_status": "verified",
             "session_token_expiry": time.time() + TOKEN_EXPIRY_DURATION  # Set expiration time
         } 
         jwt_token = jwt.encode(token_data, SECRET_KEY, algorithm="HS256")
         return jsonify({"status": "success", "message": "Device's attestation successful", "token": jwt_token})
     except Exception as e:
-        # To do pull existing token from header and send back
+        # To do pull existing jwt_token from header and send this back
         return jsonify({"status": "Unauthorized", "message": "Device's attestation failed", "token": jwt_token})
 
 
-
-#
-# Verifies a certificate chain
-#
 def verify_certificate_chain(certificates):
+    """ Mock up of recursively works through chain to to verify each certificate until it gets to the root """
     try:
         for i in range(len(certificates) - 1):
             issuer = certificates[i + 1]
@@ -235,11 +228,8 @@ def verify_certificate_chain(certificates):
                 print(f"Certificate chain verification failed: {e}")
                 return False
 
-        # Verify the root certificate 
-        # ?? revocation c
+        # todo check if we need to verify the root certificate is an apple public cert 
         root_cert = certificates[-1]
-        #print(f"Root certificate: {root_cert.subject}")
-        #print("Certificate chain verification successful.")
         return True
 
     except Exception as e:
@@ -247,10 +237,8 @@ def verify_certificate_chain(certificates):
         return False
 
 
-#
-# uses Apple's public key to verify signature   
-#
 def signature_verification(public_key, data, signature):
+    """ use Apple's public key to verify signature """   
     try:
         public_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
         return True
@@ -259,16 +247,16 @@ def signature_verification(public_key, data, signature):
         return False
     
 def validate_user(username, password):
+   """ Mock up of a function that validates a user via DB / IAM  """
    return {"username" : username}
-#
-# Compare user session tokens match and the expiry hasn't been exceed
-#
+
+
 def validate_token(received_token):
+    """ Check token expiry hasn't been exceeded """
     global SECRET_KEY
     result = False
     try:
         decoded_payload = jwt.decode(received_token, SECRET_KEY, algorithms=["HS256"])
-        user = decoded_payload["user"]  
         session_token_expiry = decoded_payload["session_token_expiry"] 
         # Check if the session token is still valid (greater than now)
         if time.time() <= session_token_expiry:
@@ -278,18 +266,13 @@ def validate_token(received_token):
         return False
 
 
-#
-#  Creates a challenge and adds it to the CHALLENGES collection with an expiry date
-#  Note: 
-#   The challenge is hard coded 
-#   The chellenge object shiould clean out expired challenges
-#
 def make_challenge():
-    new_challenge = "random_challenge".encode('utf-8')
-    challenge_expires = time.time() + CHALLENGE_EXPIRY
-    CHALLENGES[{"challenge": new_challenge, "challenge_expires": challenge_expires}]
-    return new_challenge 
-
+    """ Mockup to create a nonce and add it to the CHALLENGES collection with an expiry date
+        Note: The challenge is hard coded 
+              The challenge object should clean out expired challenges """
+    new_nonce =  "random_challenge".encode('utf-8')
+    CHALLENGES[new_nonce] = time.time() + CHALLENGE_EXPIRY 
+    return new_nonce
 
 if __name__ == "__main__":
     app.run(debug=True) 
