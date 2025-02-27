@@ -3,7 +3,7 @@
 * A client / server application that uses private public keys to validate a digital signature and authenticate a device.
 
 ## Client Server Interaction Diagram for Attestation
-* ![Revised Client Server Attestation Flow](https://github.com/user-attachments/assets/8e76fab4-8d5f-4c9b-b013-c1f0fe72ed3b)
+* ![Client Server Attestation Flow Diagram](https://github.com/user-attachments/assets/f8b023cc-ad45-4e08-92b4-c99c3498949c)
 
 ## Attestation (attestation.py) API docs
 * [Revised Attestation API](https://github.com/user-attachments/files/18998900/attestation_api.pdf)
